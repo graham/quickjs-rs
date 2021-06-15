@@ -5,7 +5,7 @@
 //!
 //! ## Limitations
 //!
-//! * Windows is not supported yet
+//! * Building on Windows requires the `x86_64-pc-windows-gnu` toolchain
 //!
 //! ## Quickstart:
 //!
@@ -37,7 +37,6 @@
 mod bindings;
 mod callback;
 pub mod console;
-mod droppable_value;
 mod value;
 
 #[cfg(test)]
@@ -45,8 +44,10 @@ mod tests;
 
 use std::{convert::TryFrom, error, fmt};
 
-pub use callback::{Arguments, Callback};
-pub use value::*;
+pub use self::{
+    callback::{Arguments, Callback},
+    value::*,
+};
 
 /// Error on Javascript execution.
 #[derive(PartialEq, Debug)]
@@ -298,7 +299,8 @@ impl Context {
         V: Into<JsValue>,
     {
         let global = self.wrapper.global()?;
-        global.set_property(name, value.into())?;
+        let v = self.wrapper.serialize_value(value.into())?;
+        global.set_property(name, v)?;
         Ok(())
     }
 
@@ -331,17 +333,11 @@ impl Context {
             .collect::<Result<Vec<_>, _>>()?;
 
         let global = self.wrapper.global()?;
-        let func_obj = global.property(function_name)?;
-
-        if !func_obj.is_object() {
-            return Err(ExecutionError::Internal(format!(
-                "Could not find function '{}' in global scope: does not exist, or not an object",
-                function_name
-            )));
-        }
-
-        let value = self.wrapper.call_function(func_obj, qargs)?.to_value()?;
-        Ok(value)
+        let func = global
+            .property_require(function_name)?
+            .try_into_function()?;
+        let v = self.wrapper.call_function(func, qargs)?.to_value()?;
+        Ok(v)
     }
 
     /// Add a global JS function that is backed by a Rust function or closure.
